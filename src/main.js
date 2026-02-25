@@ -109,6 +109,10 @@ class CanvasTrail {
       this.texture.needsUpdate = true
     }
   }
+
+  destroy() {
+    this.texture.dispose()
+  }
 }
 
 // ─── Shaders ─────────────────────────────────────────────────────────────────
@@ -229,6 +233,7 @@ class GradientMesh {
     this.el = el
     this.gl = gl
     this.isInView = false
+    this.canMove = false
     this.trail = new CanvasTrail(el)
 
     this._createMesh(gradientTex, imageSize)
@@ -256,7 +261,7 @@ class GradientMesh {
         uCursorTexture: { value: this.trail.texture },
       },
     })
-    this.geometry = new THREE.PlaneGeometry(1, 1, 100, 100)
+    this.geometry = new THREE.PlaneGeometry(1, 1, 1, 1)
     this.mesh = new THREE.Mesh(this.geometry, this.material)
     this.gl.scene.add(this.mesh)
   }
@@ -268,8 +273,6 @@ class GradientMesh {
       gl: {
         x: rect.left - this.gl.w / 2 + rect.width / 2,
         y: -rect.top + this.gl.h / 2 - rect.height / 2 - window.scrollY,
-        w: rect.width,
-        h: rect.height,
       },
     }
   }
@@ -283,8 +286,10 @@ class GradientMesh {
   }
 
   _bindEvents() {
-    this.el.addEventListener('mouseenter', () => { this.canMove = true })
-    this.el.addEventListener('mouseleave', () => { this.canMove = false })
+    this._onEnter = () => { this.canMove = true }
+    this._onLeave = () => { this.canMove = false }
+    this.el.addEventListener('mouseenter', this._onEnter)
+    this.el.addEventListener('mouseleave', this._onLeave)
   }
 
   onEnterView() {
@@ -316,36 +321,54 @@ class GradientMesh {
   }
 
   update() {
-    // keep mesh aligned to DOM element as page scrolls
     const { rect } = this.bounds
     this.mesh.position.y = -rect.top + this.gl.h / 2 - rect.height / 2 - window.scrollY
 
     if (this.isInView) {
-      this.material.uniforms.uTime.value += 0.01
+      this.material.uniforms.uTime.value = (this.material.uniforms.uTime.value + 0.01) % 1000
       this.trail.update()
     }
   }
 
   destroy() {
+    this.el.removeEventListener('mouseenter', this._onEnter)
+    this.el.removeEventListener('mouseleave', this._onLeave)
     this.material.dispose()
     this.geometry.dispose()
+    this.trail.destroy()
     this.gl.scene.remove(this.mesh)
-    this.trail.reset()
   }
 }
 
-// ─── GL Singleton + Init ──────────────────────────────────────────────────────
+// ─── GL Singleton ─────────────────────────────────────────────────────────────
 
-function init() {
-  const els = document.querySelectorAll('[data-gradient]')
-  if (!els.length) return
+let glReady = false
+let gl, gradientTex, imageSize, rafId
+let meshes = []
+let observer = null
 
-  // Shared renderer + scene
+const onMouseMove = (e) => {
+  if (window.innerWidth <= 991) return
+  meshes.forEach(m => m.move(e.clientX, e.clientY))
+}
+const onResize = () => {
+  if (!gl) return
+  gl.w = window.innerWidth
+  gl.h = window.innerHeight
+  gl.renderer.setSize(gl.w, gl.h)
+  gl.camera.left   = gl.w / -2
+  gl.camera.right  = gl.w / 2
+  gl.camera.top    = gl.h / 2
+  gl.camera.bottom = gl.h / -2
+  gl.camera.updateProjectionMatrix()
+  meshes.forEach(m => m.resize())
+}
+
+function setupGL() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
   renderer.setSize(window.innerWidth, window.innerHeight)
 
-  // Canvas sits behind the page content
   Object.assign(renderer.domElement.style, {
     position: 'fixed',
     top: '0',
@@ -357,7 +380,6 @@ function init() {
   })
   document.body.appendChild(renderer.domElement)
 
-  const scene  = new THREE.Scene()
   const camera = new THREE.OrthographicCamera(
     window.innerWidth  / -2, window.innerWidth  / 2,
     window.innerHeight / 2,  window.innerHeight / -2,
@@ -365,76 +387,93 @@ function init() {
   )
   camera.position.z = 1
 
-  const gl = {
-    scene, camera, renderer,
+  gl = {
+    renderer,
+    scene: new THREE.Scene(),
+    camera,
     w: window.innerWidth,
     h: window.innerHeight,
     noiseTex: null,
   }
 
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('resize', onResize)
+  document.addEventListener('visibilitychange', () => {
+    if (!rafId) return
+    if (document.hidden) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    } else {
+      startRAF()
+    }
+  })
+
   const loader = new THREE.TextureLoader()
-  const gl_textures = { gradientTex: null, imageSize: null, noiseTex: null }
   let loaded = 0
 
   function onLoad() {
-    if (++loaded === 2) start()
+    if (++loaded === 2) {
+      glReady = true
+      startRAF()
+      enter()
+    }
   }
 
   loader.load(gradientUrl, (tex) => {
-    gl_textures.gradientTex = tex
-    gl_textures.imageSize = new THREE.Vector2(tex.image.width, tex.image.height)
+    gradientTex = tex
+    imageSize = new THREE.Vector2(tex.image.width, tex.image.height)
     onLoad()
   })
-
   loader.load(noiseUrl, (tex) => {
-    gl_textures.noiseTex = tex
     gl.noiseTex = tex
     onLoad()
   })
-
-  function start() {
-    const meshes = []
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        const m = meshes.find(m => m.el === entry.target)
-        if (!m) return
-        entry.isIntersecting ? m.onEnterView() : m.onLeaveView()
-      })
-    })
-
-    els.forEach(el => {
-      const m = new GradientMesh(el, gl, gl_textures.gradientTex, gl_textures.imageSize)
-      meshes.push(m)
-      observer.observe(el)
-    })
-
-    window.addEventListener('mousemove', (e) => {
-      meshes.forEach(m => m.move(e.clientX, e.clientY))
-    })
-
-    window.addEventListener('resize', () => {
-      gl.w = window.innerWidth
-      gl.h = window.innerHeight
-      renderer.setSize(gl.w, gl.h)
-      camera.left   = gl.w / -2
-      camera.right  = gl.w / 2
-      camera.top    = gl.h / 2
-      camera.bottom = gl.h / -2
-      camera.updateProjectionMatrix()
-      meshes.forEach(m => m.resize())
-    })
-
-    ;(function animate() {
-      requestAnimationFrame(animate)
-      meshes.forEach(m => m.update())
-      renderer.render(scene, camera)
-    })()
-  }
 }
 
+function startRAF() {
+  ;(function animate() {
+    rafId = requestAnimationFrame(animate)
+    meshes.forEach(m => m.update())
+    gl.renderer.render(gl.scene, gl.camera)
+  })()
+}
+
+// ─── Public API (for Barba hooks) ─────────────────────────────────────────────
+
+function enter() {
+  if (!glReady) return
+
+  const els = document.querySelectorAll('[data-gradient]')
+  if (!els.length) return
+
+  observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const m = meshes.find(m => m.el === entry.target)
+      if (!m) return
+      entry.isIntersecting ? m.onEnterView() : m.onLeaveView()
+    })
+  })
+
+  els.forEach(el => {
+    const m = new GradientMesh(el, gl, gradientTex, imageSize)
+    meshes.push(m)
+    observer.observe(el)
+  })
+}
+
+function leave() {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+  meshes.forEach(m => m.destroy())
+  meshes = []
+}
+
+window.GradientSmudge = { enter, leave }
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init)
+  document.addEventListener('DOMContentLoaded', setupGL)
 } else {
-  init()
+  setupGL()
 }

@@ -1,6 +1,6 @@
 # Three.js Gradient Smudge
 
-A mouse-reactive gradient effect built with Three.js. Moving the cursor over a tagged element distorts the gradient image using a canvas-encoded velocity trail fed into a GLSL shader.
+A mouse-reactive gradient effect built with Three.js. Moving the cursor over a tagged element distorts the gradient image using a canvas-encoded velocity trail fed into a GLSL shader. On tablet and mobile (991px and below), the gradient renders and animates normally but the mouse smudge interaction is disabled.
 
 ## Development
 
@@ -76,6 +76,29 @@ In the Webflow Designer, select any element and add a custom attribute:
 The effect will render on every element tagged with `data-gradient`. Multiple elements on the same page are supported — they share one WebGL renderer.
 
 The element must have a defined size (width + height) in Webflow. The WebGL canvas renders behind all page content (`position: fixed`, `z-index: 0`, `pointer-events: none`), so page layout is unaffected.
+
+## Barba.js Integration
+
+The script auto-initializes on page load. For Barba-powered sites, add two lines to your existing Barba setup so meshes are destroyed before a transition and recreated after.
+
+```js
+barba.hooks.afterLeave(() => {
+  window.GradientSmudge?.leave()
+  // ... your existing afterLeave code
+})
+
+function initAfterEnterFunctions(next) {
+  nextPage = next || document
+  window.GradientSmudge?.enter()
+  // ... rest of your existing function
+}
+```
+
+No changes to `initOnceFunctions` are needed — the GL context, textures, and RAF loop are set up once automatically and persist across all transitions.
+
+> Remove any existing `initUnicornStudio()` call from `initOnceFunctions` if replacing Unicorn Studio with this effect.
+
+---
 
 ## Assets
 
