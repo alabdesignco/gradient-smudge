@@ -21,16 +21,9 @@ Outputs a single self-contained `dist/app.js` file. Both `gradient.jpg` and `noi
 
 ## Webflow Integration
 
-### 1. Deploy to Vercel
+### Option A — Vercel
 
 Push the repo to GitHub, connect it to [Vercel](https://vercel.com), and set the **Output Directory** to `dist`. Vercel will run `npm run build` automatically.
-
-Your script will be available at:
-```
-https://your-project.vercel.app/app.js
-```
-
-### 2. Add the script to Webflow
 
 In **Webflow → Site Settings → Custom Code → Footer**, paste:
 
@@ -38,7 +31,42 @@ In **Webflow → Site Settings → Custom Code → Footer**, paste:
 <script src="https://your-project.vercel.app/app.js"></script>
 ```
 
-### 3. Tag your elements
+### Option B — jsDelivr (no hosting needed)
+
+jsDelivr can serve files directly from a GitHub repository with no deployment step.
+
+**1.** Run the build locally and commit `dist/app.js` to the repo:
+
+```bash
+npm run build
+git add dist/app.js
+git commit -m "build"
+git push
+```
+
+> Make sure `dist/` is not in your `.gitignore`.
+
+**2.** In **Webflow → Site Settings → Custom Code → Footer**, paste:
+
+```html
+<!-- pin to a specific release tag (recommended) -->
+<script src="https://cdn.jsdelivr.net/gh/your-username/your-repo@v1.0.0/dist/app.js"></script>
+
+<!-- or always use the latest commit on main (not recommended for production) -->
+<script src="https://cdn.jsdelivr.net/gh/your-username/your-repo@main/dist/app.js"></script>
+```
+
+To create a release tag:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+jsDelivr caches aggressively, so pinning to a tag ensures visitors always get the correct version. Updating to a new version means tagging a new release.
+
+---
+
+### Tag your elements
 
 In the Webflow Designer, select any element and add a custom attribute:
 
