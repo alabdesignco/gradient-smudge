@@ -452,6 +452,7 @@ function enter() {
   els.forEach(el => {
     const m = new GradientMesh(el, gl, gradientTex, imageSize)
     meshes.push(m)
+    m.onEnterView()
     observer.observe(el)
   })
 }
