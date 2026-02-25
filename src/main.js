@@ -233,12 +233,10 @@ class GradientMesh {
     this.el = el
     this.gl = gl
     this.isInView = false
-    this.canMove = false
     this.trail = new CanvasTrail(el)
 
     this._createMesh(gradientTex, imageSize)
     this._setData()
-    this._bindEvents()
   }
 
   _createMesh(gradientTex, imageSize) {
@@ -285,13 +283,6 @@ class GradientMesh {
     this.mesh.scale.set(rect.width, rect.height, 1)
   }
 
-  _bindEvents() {
-    this._onEnter = () => { this.canMove = true }
-    this._onLeave = () => { this.canMove = false }
-    this.el.addEventListener('mouseenter', this._onEnter)
-    this.el.addEventListener('mouseleave', this._onLeave)
-  }
-
   onEnterView() {
     this.isInView = true
     this.mesh.visible = true
@@ -304,8 +295,8 @@ class GradientMesh {
   }
 
   move(domX, domY) {
-    if (!this.canMove) return
     const rect = this.el.getBoundingClientRect()
+    if (domX < rect.left || domX > rect.right || domY < rect.top || domY > rect.bottom) return
     this.trail.addPoint({
       x: (domX - rect.left) / rect.width,
       y: (domY - rect.top)  / rect.height,
@@ -334,8 +325,6 @@ class GradientMesh {
   }
 
   destroy() {
-    this.el.removeEventListener('mouseenter', this._onEnter)
-    this.el.removeEventListener('mouseleave', this._onLeave)
     this.material.dispose()
     this.geometry.dispose()
     this.trail.destroy()
