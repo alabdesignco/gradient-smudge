@@ -322,7 +322,10 @@ class GradientMesh {
 
   update() {
     const rect = this.el.getBoundingClientRect()
+    this.mesh.position.x = rect.left - this.gl.w / 2 + rect.width / 2
     this.mesh.position.y = -rect.top + this.gl.h / 2 - rect.height / 2
+    this.mesh.scale.set(rect.width, rect.height, 1)
+    this.material.uniforms.uMeshSize.value.set(rect.width, rect.height)
 
     if (this.isInView) {
       this.material.uniforms.uTime.value = (this.material.uniforms.uTime.value + 0.01) % 1000
