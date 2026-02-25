@@ -305,7 +305,7 @@ class GradientMesh {
 
   move(domX, domY) {
     if (!this.canMove) return
-    const { rect } = this.bounds
+    const rect = this.el.getBoundingClientRect()
     this.trail.addPoint({
       x: (domX - rect.left) / rect.width,
       y: (domY - rect.top)  / rect.height,
@@ -321,8 +321,8 @@ class GradientMesh {
   }
 
   update() {
-    const { rect } = this.bounds
-    this.mesh.position.y = -rect.top + this.gl.h / 2 - rect.height / 2 - window.scrollY
+    const rect = this.el.getBoundingClientRect()
+    this.mesh.position.y = -rect.top + this.gl.h / 2 - rect.height / 2
 
     if (this.isInView) {
       this.material.uniforms.uTime.value = (this.material.uniforms.uTime.value + 0.01) % 1000
