@@ -356,8 +356,8 @@ const onMouseMove = (e) => {
 }
 const onResize = () => {
   if (!gl) return
-  gl.w = window.innerWidth
-  gl.h = window.innerHeight
+  gl.w = document.documentElement.clientWidth
+  gl.h = document.documentElement.clientHeight
   gl.renderer.setSize(gl.w, gl.h)
   gl.camera.left   = gl.w / -2
   gl.camera.right  = gl.w / 2
@@ -369,8 +369,11 @@ const onResize = () => {
 
 function setupGL() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  const vw = document.documentElement.clientWidth
+  const vh = document.documentElement.clientHeight
+
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
-  renderer.setSize(window.innerWidth, window.innerHeight)
+  renderer.setSize(vw, vh)
 
   Object.assign(renderer.domElement.style, {
     position: 'fixed',
@@ -384,8 +387,8 @@ function setupGL() {
   document.body.appendChild(renderer.domElement)
 
   const camera = new THREE.OrthographicCamera(
-    window.innerWidth  / -2, window.innerWidth  / 2,
-    window.innerHeight / 2,  window.innerHeight / -2,
+    vw / -2, vw / 2,
+    vh /  2, vh / -2,
     0.1, 10
   )
   camera.position.z = 1
@@ -394,8 +397,8 @@ function setupGL() {
     renderer,
     scene: new THREE.Scene(),
     camera,
-    w: window.innerWidth,
-    h: window.innerHeight,
+    w: vw,
+    h: vh,
     noiseTex: null,
   }
 
