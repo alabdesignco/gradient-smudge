@@ -5,12 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Three.js Gradient Smudge</title>
     <style>
-      * { margin: 0; padding: 0; }
-      body { overflow: hidden; }
-      canvas { display: block; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #111; }
+      [data-gradient] {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        z-index: 1;
+      }
     </style>
   </head>
   <body>
+    <div data-gradient></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

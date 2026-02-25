@@ -5,15 +5,17 @@ import noiseUrl from '../assets/noise.png'
 // ─── Canvas Mouse Trail Texture ───────────────────────────────────────────────
 
 class CanvasTrail {
-  constructor() {
+  constructor(el) {
+    this.$el = el
     this.size = 60
     this.maxAge = 50
     this.radius = 0.08 * this.size
     this.points = []
     this.needUpdate = false
     this.last = null
+    const rect = el.getBoundingClientRect()
     this.width = this.size
-    this.height = this.size * (window.innerHeight / window.innerWidth)
+    this.height = this.size * (rect.height / rect.width)
     this._init()
   }
 
@@ -81,8 +83,9 @@ class CanvasTrail {
   }
 
   resize() {
+    const rect = this.$el.getBoundingClientRect()
     this.last = null
-    this.height = this.size * (window.innerHeight / window.innerWidth)
+    this.height = this.size * (rect.height / rect.width)
     this.texture.dispose()
     this.canvas.height = this.height
     this.texture = new THREE.CanvasTexture(this.canvas)
@@ -186,7 +189,6 @@ float random(vec2 st) {
 void main() {
   vec2 uv = vUv;
 
-  // Mouse smudge displacement
   vec4  noiseTex = texture2D(uNoise, uv);
   vec4  mouseTex = texture2D(uCursorTexture, uv);
   float vx = -((mouseTex.r * 2.0) - 1.0);
@@ -194,10 +196,8 @@ void main() {
   uv.x += noiseTex.r * vx * 0.3 * mouseTex.b;
   uv.y += noiseTex.r * vy * 0.3 * mouseTex.b;
 
-  // Aspect-correct gradient UV
   vec2 gradientUV = aspectCover(uv, uImageSize, uMeshSize);
 
-  // Animated noise layer drives Y-axis warp
   vec2 noiseUV = aspectCover(uv * uZoom, uImageSize, uMeshSize);
   noiseUV.xy *= (uResolution.x / uResolution.y) * 10.0;
   noiseUV.y  *=  uResolution.y / uResolution.x;
@@ -205,7 +205,6 @@ void main() {
   noiseUV     = rotateUV(noiseUV, uTime * 0.05);
   vec4 noiseLayer = animatedNoise(noiseUV) / 0.25;
 
-  // Warp gradient UV
   gradientUV  = rotateUV(gradientUV, uNoiseOffset * 500.0 + uTime * uSpeed);
   gradientUV -= 0.5;
   gradientUV.y *= uResolution.y / uResolution.x;
@@ -216,7 +215,6 @@ void main() {
 
   vec4 gradientColor = texture2D(uGradient, gradientUV);
 
-  // Film grain
   vec2  grainUV = uv + snoise(uv * 400.0);
   float grain   = snoise(grainUV + uTime * random(grainUV) * uGrainSpeed);
 
@@ -224,64 +222,219 @@ void main() {
 }
 `
 
-// ─── Scene Setup ─────────────────────────────────────────────────────────────
+// ─── Per-element Gradient Mesh ────────────────────────────────────────────────
 
-const scene    = new THREE.Scene()
-const camera   = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
-const renderer = new THREE.WebGLRenderer({ antialias: true })
+class GradientMesh {
+  constructor(el, gl, gradientTex, imageSize) {
+    this.el = el
+    this.gl = gl
+    this.isInView = false
+    this.trail = new CanvasTrail(el)
 
-renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
-document.body.appendChild(renderer.domElement)
+    this._createMesh(gradientTex, imageSize)
+    this._setData()
+    this._bindEvents()
+  }
 
-const trail = new CanvasTrail()
+  _createMesh(gradientTex, imageSize) {
+    const rect = this.el.getBoundingClientRect()
+    this.material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        uTime:          { value: 0 },
+        uSpeed:         { value: 0.25 },
+        uZoom:          { value: 1.1 },
+        uGrainAmount:   { value: 0.07 },
+        uGrainSpeed:    { value: 5 },
+        uNoiseOffset:   { value: Math.random() },
+        uResolution:    { value: new THREE.Vector2(this.gl.w, this.gl.h) },
+        uMeshSize:      { value: new THREE.Vector2(rect.width, rect.height) },
+        uImageSize:     { value: imageSize.clone() },
+        uNoise:         { value: this.gl.noiseTex },
+        uGradient:      { value: gradientTex },
+        uCursorTexture: { value: this.trail.texture },
+      },
+    })
+    this.geometry = new THREE.PlaneGeometry(1, 1, 100, 100)
+    this.mesh = new THREE.Mesh(this.geometry, this.material)
+    this.gl.scene.add(this.mesh)
+  }
 
-const uniforms = {
-  uTime:          { value: 0 },
-  uSpeed:         { value: 0.25 },
-  uZoom:          { value: 1.1 },
-  uGrainAmount:   { value: 0.07 },
-  uGrainSpeed:    { value: 5 },
-  uNoiseOffset:   { value: Math.random() },
-  uResolution:    { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-  uMeshSize:      { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-  uImageSize:     { value: new THREE.Vector2(512, 512) },
-  uNoise:         { value: new THREE.TextureLoader().load(noiseUrl) },
-  uGradient:      { value: new THREE.TextureLoader().load(gradientUrl, (tex) => {
-    uniforms.uImageSize.value.set(tex.image.width, tex.image.height)
-  }) },
-  uCursorTexture: { value: trail.texture },
+  _getBounds() {
+    const rect = this.el.getBoundingClientRect()
+    this.bounds = {
+      rect,
+      gl: {
+        x: rect.left - this.gl.w / 2 + rect.width / 2,
+        y: -rect.top + this.gl.h / 2 - rect.height / 2 - window.scrollY,
+        w: rect.width,
+        h: rect.height,
+      },
+    }
+  }
+
+  _setData() {
+    this._getBounds()
+    const { gl, rect } = this.bounds
+    this.material.uniforms.uMeshSize.value.set(rect.width, rect.height)
+    this.mesh.position.set(gl.x, gl.y, 0)
+    this.mesh.scale.set(rect.width, rect.height, 1)
+  }
+
+  _bindEvents() {
+    this.el.addEventListener('mouseenter', () => { this.canMove = true })
+    this.el.addEventListener('mouseleave', () => { this.canMove = false })
+  }
+
+  onEnterView() {
+    this.isInView = true
+    this.mesh.visible = true
+  }
+
+  onLeaveView() {
+    this.isInView = false
+    this.trail.reset()
+    this.mesh.visible = false
+  }
+
+  move(domX, domY) {
+    if (!this.canMove) return
+    const { rect } = this.bounds
+    this.trail.addPoint({
+      x: (domX - rect.left) / rect.width,
+      y: (domY - rect.top)  / rect.height,
+    })
+  }
+
+  resize() {
+    this._setData()
+    this.trail.resize()
+    this.material.uniforms.uCursorTexture.value = this.trail.texture
+    this.material.uniforms.uResolution.value.set(this.gl.w, this.gl.h)
+    this.material.needsUpdate = true
+  }
+
+  update() {
+    // keep mesh aligned to DOM element as page scrolls
+    const { rect } = this.bounds
+    this.mesh.position.y = -rect.top + this.gl.h / 2 - rect.height / 2 - window.scrollY
+
+    if (this.isInView) {
+      this.material.uniforms.uTime.value += 0.01
+      this.trail.update()
+    }
+  }
+
+  destroy() {
+    this.material.dispose()
+    this.geometry.dispose()
+    this.gl.scene.remove(this.mesh)
+    this.trail.reset()
+  }
 }
 
-const mesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(2, 2),
-  new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms })
-)
-scene.add(mesh)
+// ─── GL Singleton + Init ──────────────────────────────────────────────────────
 
-// ─── Events ──────────────────────────────────────────────────────────────────
+function init() {
+  const els = document.querySelectorAll('[data-gradient]')
+  if (!els.length) return
 
-window.addEventListener('mousemove', (e) => {
-  trail.addPoint({
-    x: e.clientX / window.innerWidth,
-    y: e.clientY / window.innerHeight,
-  })
-})
-
-window.addEventListener('resize', () => {
+  // Shared renderer + scene
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
   renderer.setSize(window.innerWidth, window.innerHeight)
-  uniforms.uResolution.value.set(window.innerWidth, window.innerHeight)
-  uniforms.uMeshSize.value.set(window.innerWidth, window.innerHeight)
-  trail.resize()
-  uniforms.uCursorTexture.value = trail.texture
-})
 
-// ─── Loop ─────────────────────────────────────────────────────────────────────
+  // Canvas sits behind the page content
+  Object.assign(renderer.domElement.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '100%',
+    height: '100%',
+    pointerEvents: 'none',
+    zIndex: '0',
+  })
+  document.body.appendChild(renderer.domElement)
 
-function animate() {
-  requestAnimationFrame(animate)
-  uniforms.uTime.value += 0.01
-  trail.update()
-  renderer.render(scene, camera)
+  const scene  = new THREE.Scene()
+  const camera = new THREE.OrthographicCamera(
+    window.innerWidth  / -2, window.innerWidth  / 2,
+    window.innerHeight / 2,  window.innerHeight / -2,
+    0.1, 10
+  )
+  camera.position.z = 1
+
+  const gl = {
+    scene, camera, renderer,
+    w: window.innerWidth,
+    h: window.innerHeight,
+    noiseTex: null,
+  }
+
+  const loader = new THREE.TextureLoader()
+  const gl_textures = { gradientTex: null, imageSize: null, noiseTex: null }
+  let loaded = 0
+
+  function onLoad() {
+    if (++loaded === 2) start()
+  }
+
+  loader.load(gradientUrl, (tex) => {
+    gl_textures.gradientTex = tex
+    gl_textures.imageSize = new THREE.Vector2(tex.image.width, tex.image.height)
+    onLoad()
+  })
+
+  loader.load(noiseUrl, (tex) => {
+    gl_textures.noiseTex = tex
+    gl.noiseTex = tex
+    onLoad()
+  })
+
+  function start() {
+    const meshes = []
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        const m = meshes.find(m => m.el === entry.target)
+        if (!m) return
+        entry.isIntersecting ? m.onEnterView() : m.onLeaveView()
+      })
+    })
+
+    els.forEach(el => {
+      const m = new GradientMesh(el, gl, gl_textures.gradientTex, gl_textures.imageSize)
+      meshes.push(m)
+      observer.observe(el)
+    })
+
+    window.addEventListener('mousemove', (e) => {
+      meshes.forEach(m => m.move(e.clientX, e.clientY))
+    })
+
+    window.addEventListener('resize', () => {
+      gl.w = window.innerWidth
+      gl.h = window.innerHeight
+      renderer.setSize(gl.w, gl.h)
+      camera.left   = gl.w / -2
+      camera.right  = gl.w / 2
+      camera.top    = gl.h / 2
+      camera.bottom = gl.h / -2
+      camera.updateProjectionMatrix()
+      meshes.forEach(m => m.resize())
+    })
+
+    ;(function animate() {
+      requestAnimationFrame(animate)
+      meshes.forEach(m => m.update())
+      renderer.render(scene, camera)
+    })()
+  }
 }
-animate()
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init)
+} else {
+  init()
+}
