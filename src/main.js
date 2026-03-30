@@ -394,10 +394,11 @@ function setupGL() {
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', () => {
-    if (!rafId) return
     if (document.hidden) {
-      cancelAnimationFrame(rafId)
-      rafId = null
+      if (rafId) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
     } else {
       startRAF()
     }
